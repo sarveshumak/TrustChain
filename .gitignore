@@ -1,0 +1,9 @@
+﻿node_modules/
+.env
+*.db
+ganache-data/
+ganache-data-new/
+dist/
+build/
+.vite/
+ganache-data-old/

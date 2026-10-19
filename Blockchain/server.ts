@@ -511,7 +511,7 @@ app.post(
 
             const privateKey =
                 process.env
-                    .ADMIN_PRIVATE_KEY;
+                    .MANUFACTURER_PRIVATE_KEY;
 
             if (!privateKey) {
                 return res.status(500).json({

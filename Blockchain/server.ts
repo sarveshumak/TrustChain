@@ -509,9 +509,12 @@ app.post(
             // MANUFACTURER WALLET
             // -------------------------------------------------
 
+            // -------------------------------------------------
+            // MANUFACTURER WALLET
+            // -------------------------------------------------
+
             const privateKey =
-                process.env
-                    .MANUFACTURER_PRIVATE_KEY;
+                process.env.MANUFACTURER_PRIVATE_KEY;
 
             if (!privateKey) {
                 return res.status(500).json({

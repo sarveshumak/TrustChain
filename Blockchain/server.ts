@@ -4,8 +4,19 @@ import { ethers } from "ethers";
 import fs from "fs";
 import path from "path";
 import "dotenv/config";
+import cors from "cors";
+
+
 
 const app = express();
+
+app.use(cors({
+    origin: [
+        "http://localhost:5173",
+        "https://trustchain-frontend-fl3x.onrender.com"
+    ],
+    credentials: true
+}));
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -13,28 +24,7 @@ const PORT = Number(process.env.PORT) || 3000;
 // MIDDLEWARE
 // =====================================================
 
-app.use((req, res, next) => {
-    res.header(
-        "Access-Control-Allow-Origin",
-        "https://trustchain-frontend-fl3x.onrender.com"
-    );
 
-    res.header(
-        "Access-Control-Allow-Methods",
-        "GET,POST,PUT,DELETE,OPTIONS"
-    );
-
-    res.header(
-        "Access-Control-Allow-Headers",
-        "Content-Type"
-    );
-
-    if (req.method === "OPTIONS") {
-        return res.sendStatus(204);
-    }
-
-    next();
-});
 
 app.use(express.json());
 

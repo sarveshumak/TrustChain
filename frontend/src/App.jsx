@@ -33,6 +33,8 @@ function App() {
   const [dashboardView, setDashboardView] = useState("home");
   const [products, setProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [activationSecret, setActivationSecret] = useState("");
+  const [activationLoading, setActivationLoading] = useState(false);
   const [productsLoading, setProductsLoading] = useState(false);
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -546,6 +548,71 @@ function App() {
     }
 
     setDashboardView("product-details");
+  };
+
+
+  const activateProduct = async () => {
+    if (!activationSecret.trim()) {
+      alert("Please enter the authentication secret.");
+      return;
+    }
+
+    setActivationLoading(true);
+
+    try {
+      const response = await fetch(
+        `${API}/api/products/${encodeURIComponent(
+          selectedProduct.productId
+        )}/activate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            secret: activationSecret.trim(),
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        alert(
+          data.message ||
+            "Product activation failed."
+        );
+        return;
+      }
+
+      alert(
+        `Product activated successfully!\n\nTransaction Hash:\n${data.transactionHash}`
+      );
+
+      setActivationSecret("");
+
+      // Fetch the latest blockchain state
+      await openProductDetails({
+        ...selectedProduct,
+        activated: true,
+        status: "ACTIVE",
+      });
+
+      // Refresh product list
+      await loadProducts();
+
+    } catch (error) {
+      console.error(
+        "Activation error:",
+        error
+      );
+
+      alert(
+        "Unable to activate product."
+      );
+    } finally {
+      setActivationLoading(false);
+    }
   };
 
   // =========================================================
@@ -2562,6 +2629,59 @@ function App() {
                       selectedProduct.metadataHash
                     }
                   />
+
+                  {!selectedProduct.activated && (
+                    <div
+                      style={{
+                        ...styles.card,
+                        marginTop: "20px",
+                        border: "1px solid #f59e0b",
+                      }}
+                    >
+                      <h3>🔐 Activate Product</h3>
+
+                      <p
+                        style={{
+                          color: "#666",
+                          marginBottom: "15px",
+                        }}
+                      >
+                        Enter the authentication secret to
+                        activate this product on the blockchain.
+                      </p>
+
+                      <input
+                        type="text"
+                        value={activationSecret}
+                        onChange={(e) =>
+                          setActivationSecret(e.target.value)
+                        }
+                        placeholder="Enter authentication secret"
+                        style={{
+                          ...styles.input,
+                          width: "100%",
+                          boxSizing: "border-box",
+                          marginBottom: "12px",
+                        }}
+                        disabled={activationLoading}
+                      />
+
+                      <button
+                        onClick={activateProduct}
+                        disabled={activationLoading}
+                        style={{
+                          ...styles.primaryButton,
+                          opacity: activationLoading
+                            ? 0.6
+                            : 1,
+                        }}
+                      >
+                        {activationLoading
+                          ? "Activating..."
+                          : "🔐 Activate Product"}
+                      </button>
+                    </div>
+                  )}
 
                   <div
                     style={

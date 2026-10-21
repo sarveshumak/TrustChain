@@ -163,6 +163,124 @@ const productVerification =
         provider
     );
 
+
+async function discoverProducts(): Promise<
+    {
+        productId: string;
+        transactionHash: string | null;
+    }[]
+> {
+    const discoveredProducts = new Map<
+        string,
+        string | null
+    >();
+
+    const latestBlock =
+        await provider.getBlockNumber();
+
+    const LOOKBACK_BLOCKS = 30000;
+    const CHUNK_SIZE = 5000;
+
+    const fromBlock = Math.max(
+        0,
+        latestBlock - LOOKBACK_BLOCKS
+    );
+
+    console.log(
+        `Discovering products from blocks ${fromBlock} to ${latestBlock}`
+    );
+
+    for (
+        let startBlock = fromBlock;
+        startBlock <= latestBlock;
+        startBlock += CHUNK_SIZE
+    ) {
+        const endBlock = Math.min(
+            startBlock + CHUNK_SIZE - 1,
+            latestBlock
+        );
+
+        try {
+            const events =
+                await productVerification.queryFilter(
+                    productVerification.filters.ProductRegistered(),
+                    startBlock,
+                    endBlock
+                );
+
+            console.log(
+                `Blocks ${startBlock}-${endBlock}: ${events.length} registration events`
+            );
+
+            for (const event of events) {
+                if (
+                    "args" in event &&
+                    event.args
+                ) {
+                    const productId =
+                        event.args.productId ??
+                        event.args[0];
+
+                    if (
+                        typeof productId ===
+                        "string"
+                    ) {
+                        discoveredProducts.set(
+                            productId,
+                            event.transactionHash
+                        );
+                    }
+                }
+            }
+
+            await new Promise((resolve) =>
+                setTimeout(resolve, 300)
+            );
+        } catch (error) {
+            console.error(
+                `Failed scanning ${startBlock}-${endBlock}:`,
+                error
+            );
+
+            await new Promise((resolve) =>
+                setTimeout(resolve, 1500)
+            );
+        }
+    }
+
+    // These products are already confirmed
+    // to exist on-chain.
+    //
+    // We only add their IDs here.
+    // Their registration transaction hash
+    // will be filled by the blockchain event scan
+    // whenever that event is discovered.
+
+    for (const productId of [
+        "PROD001",
+        "PROD002",
+        "PROD003"
+    ]) {
+        if (!discoveredProducts.has(productId)) {
+            discoveredProducts.set(
+                productId,
+                null
+            );
+        }
+    }
+
+    return [...discoveredProducts.entries()]
+        .map(
+            ([
+                productId,
+                transactionHash
+            ]) => ({
+                productId,
+                transactionHash
+            })
+        );
+}
+
 // =====================================================
 // STATUS HELPER
 // =====================================================
@@ -725,69 +843,121 @@ app.post("/api/products/sync/:productId", async (req, res) => {
 
 app.get("/api/products", async (req, res) => {
     try {
-        const products: any[] = [];
-
-        // Get all product IDs that have been registered
-        // through this backend and stored in the database.
-        const dbProducts = db.prepare(`
-            SELECT
-                productId,
-                transactionHash,
-                createdAt
-            FROM products
-            ORDER BY id ASC
-        `).all() as {
-            productId: string;
-            transactionHash: string | null;
-            createdAt: string | null;
-        }[];
+        const discoveredProducts =
+            await discoverProducts();
 
         console.log(
-            "Database Product IDs:",
-            dbProducts.map((p) => p.productId)
+            "Products discovered:",
+            discoveredProducts
         );
 
-        // Fetch the latest state of every product from blockchain
-        for (const dbProduct of dbProducts) {
+        const products: any[] = [];
+
+        for (const discoveredProduct of discoveredProducts) {
+            const productId =
+                discoveredProduct.productId;
+
+            const registrationTransactionHash =
+                discoveredProduct.transactionHash;
             try {
                 const blockchainProduct =
                     await productVerification.verifyProduct(
-                        dbProduct.productId,
+                        productId,
                         ethers.ZeroHash
                     );
 
-                const exists = blockchainProduct[13];
+                const exists =
+                    blockchainProduct[13];
 
                 if (!exists) {
                     console.log(
-                        `Product ${dbProduct.productId} not found on blockchain`
+                        `Product ${productId} does not exist on blockchain`
                     );
                     continue;
                 }
 
+                // Use SQLite only if cached data exists.
+                // Blockchain remains the source of truth.
+                const dbProduct =
+                    db.prepare(`
+                        SELECT
+                            transactionHash,
+                            createdAt
+                        FROM products
+                        WHERE productId = ?
+                    `).get(productId) as
+                    | {
+                          transactionHash:
+                              string | null;
+                          createdAt:
+                              string | null;
+                      }
+                    | undefined;
+
                 products.push({
-                    productId: blockchainProduct[0],
-                    serialNumber: blockchainProduct[1],
-                    productName: blockchainProduct[2],
-                    manufacturer: blockchainProduct[3],
-                    batchNumber: blockchainProduct[4],
-                    manufacturingDate: blockchainProduct[5],
-                    expiryDate: blockchainProduct[6],
-                    metadataHash: blockchainProduct[7],
-                    status: getStatusName(blockchainProduct[8]),
-                    activated: blockchainProduct[9],
-                    currentOwner: blockchainProduct[10],
+                    productId:
+                        blockchainProduct[0],
+
+                    serialNumber:
+                        blockchainProduct[1],
+
+                    productName:
+                        blockchainProduct[2],
+
+                    manufacturer:
+                        blockchainProduct[3],
+
+                    batchNumber:
+                        blockchainProduct[4],
+
+                    manufacturingDate:
+                        blockchainProduct[5],
+
+                    expiryDate:
+                        blockchainProduct[6],
+
+                    metadataHash:
+                        blockchainProduct[7],
+
+                    status:
+                        getStatusName(
+                            blockchainProduct[8]
+                        ),
+
+                    activated:
+                        blockchainProduct[9],
+
+                    currentOwner:
+                        blockchainProduct[10],
+
                     createdAt:
-                        dbProduct.createdAt ||
-                        String(blockchainProduct[11]),
+                        dbProduct?.createdAt ||
+                        new Date(
+                            Number(
+                                blockchainProduct[11]
+                            ) * 1000
+                        ).toISOString(),
+
                     transactionHash:
-                        dbProduct.transactionHash || null
+                        registrationTransactionHash ||
+                        dbProduct?.transactionHash ||
+                        null
                 });
+
+                // Small delay between eth_call requests.
+                await new Promise((resolve) =>
+                    setTimeout(resolve, 300)
+                );
 
             } catch (error) {
                 console.error(
-                    `Unable to load ${dbProduct.productId}:`,
+                    `Unable to load ${productId}:`,
                     error
+                );
+
+                // Don't immediately hit the RPC again.
+                await new Promise((resolve) =>
+                    setTimeout(resolve, 1500)
                 );
             }
         }
@@ -806,11 +976,11 @@ app.get("/api/products", async (req, res) => {
 
         return res.status(500).json({
             success: false,
-            message: "Unable to fetch products."
+            message:
+                "Unable to fetch products."
         });
     }
 });
-
 // =====================================================
 // GET SINGLE PRODUCT
 // =====================================================

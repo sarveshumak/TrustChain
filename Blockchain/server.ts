@@ -28,6 +28,10 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
+
+
+
+
 // =====================================================
 // DATABASE
 // =====================================================
@@ -616,236 +620,196 @@ app.post(
 // known blockchain products and then add DB products.
 // =====================================================
 
-app.get(
-    "/api/products",
-    async (req, res) => {
+// =====================================================
+// GET ALL PRODUCTS
+// BLOCKCHAIN + DATABASE
+// =====================================================
 
-        try {
+// =====================================================
+// GET ALL PRODUCTS
+// DATABASE PRODUCT IDS + BLOCKCHAIN DATA
+// =====================================================
 
-            const products: any[] = [];
 
-            // -------------------------------------------------
-            // DISCOVER PRODUCTS DIRECTLY FROM BLOCKCHAIN EVENTS
-            // -------------------------------------------------
 
-            const provider =
-    new ethers.JsonRpcProvider(
-        process.env.RPC_URL!
-    );
+// =====================================================
+// ONE-TIME SYNC EXISTING BLOCKCHAIN PRODUCT TO DATABASE
+// =====================================================
 
-const currentBlock =
-    await provider.getBlockNumber();
+app.post("/api/products/sync/:productId", async (req, res) => {
+    try {
+        const productId = req.params.productId.trim();
 
-const fromBlock =
-    Math.max(0, currentBlock - 20000);
-
-const events: any[] = [];
-
-const filter =
-    productVerification.filters.ProductRegistered();
-
-for (
-    let startBlock = fromBlock;
-    startBlock <= currentBlock;
-    startBlock += 10000
-) {
-
-    const endBlock =
-        Math.min(
-            startBlock + 9999,
-            currentBlock
-        );
-
-    const chunkEvents =
-    await productVerification.queryFilter(
-        filter,
-        startBlock,
-        endBlock
-    );
-
-events.push(...chunkEvents);
-
-// Small delay to avoid RPC rate limiting
-await new Promise(
-    resolve => setTimeout(resolve, 1000)
-);
-}
-
-            const productIds = [
-                "PROD001",
-                ...new Set(
-                    events.map(
-                        event => String(event.args[0])
-                    )
-                )
-            ];
-
-            // -------------------------------------------------
-            // ALSO INCLUDE PRODUCTS PRESENT IN DATABASE
-            // -------------------------------------------------
-
-            const dbProducts =
-                db.prepare(`
-                    SELECT
-                        productId,
-                        transactionHash,
-                        createdAt
-                    FROM products
-                    ORDER BY id DESC
-                `).all() as any[];
-
-            for (const dbProduct of dbProducts) {
-
-                if (!productIds.includes(dbProduct.productId)) {
-                    productIds.push(dbProduct.productId);
-                }
-
-            }
-
-            // -------------------------------------------------
-            // LOAD COMPLETE PRODUCT DATA FROM BLOCKCHAIN
-            // -------------------------------------------------
-
-            for (const productId of productIds) {
-
-                try {
-
-                    const product =
-                        await productVerification.verifyProduct(
-                            productId,
-                            ethers.ZeroHash
-                        );
-
-                    const exists = product[13];
-
-                    if (!exists) {
-                        continue;
-                    }
-
-                    const dbProduct =
-                        dbProducts.find(
-                            p =>
-                                p.productId === productId
-                        );
-
-                    const blockchainEvent =
-                        events.find(
-                            event =>
-                                String(event.args[0]) ===
-                                productId
-                        );
-
-                    products.push({
-
-                        productId:
-                            product[0],
-
-                        serialNumber:
-                            product[1],
-
-                        productName:
-                            product[2],
-
-                        manufacturer:
-                            product[3],
-
-                        batchNumber:
-                            product[4],
-
-                        manufacturingDate:
-                            product[5],
-
-                        expiryDate:
-                            product[6],
-
-                        metadataHash:
-                            product[7],
-
-                        status:
-                            getStatusName(
-                                product[8]
-                            ),
-
-                        activated:
-                            product[9],
-
-                        currentOwner:
-                            product[10],
-
-                        createdAt:
-                            dbProduct?.createdAt ||
-                            String(product[11]),
-
-                        transactionHash:
-                            dbProduct?.transactionHash ||
-                            blockchainEvent?.transactionHash ||
-                            null
-                    });
-
-                } catch (error) {
-
-                    console.error(
-                        `Blockchain lookup failed for ${productId}:`,
-                        error
-                    );
-
-                }
-
-            }
-
-            // -------------------------------------------------
-            // SORT
-            // -------------------------------------------------
-
-            products.sort(
-                (a, b) =>
-                    String(b.productId).localeCompare(
-                        String(a.productId),
-                        undefined,
-                        {
-                            numeric: true
-                        }
-                    )
+        // Fetch product from blockchain
+        const product =
+            await productVerification.verifyProduct(
+                productId,
+                ethers.ZeroHash
             );
 
-            console.log(
-                "Products returned:",
-                products.map(
-                    p => p.productId
-                )
-            );
+        const exists = product[13];
 
-            return res.json({
-
-                success: true,
-
-                count:
-                    products.length,
-
-                products
-
-            });
-
-        } catch (error) {
-
-            console.error(
-                "Get Products Error:",
-                error
-            );
-
-            return res.status(500).json({
-
+        if (!exists) {
+            return res.status(404).json({
                 success: false,
-
-                message:
-                    "Unable to fetch products."
-
+                message: "Product not found on blockchain."
             });
-
         }
 
+        // Check if already in database
+        const existing =
+            db.prepare(`
+                SELECT productId
+                FROM products
+                WHERE productId = ?
+            `).get(productId);
+
+        if (existing) {
+            return res.json({
+                success: true,
+                message: "Product already exists in database."
+            });
+        }
+
+        // Insert blockchain product into SQLite
+        db.prepare(`
+            INSERT INTO products (
+                productId,
+                serialNumber,
+                productName,
+                manufacturer,
+                batchNumber,
+                manufacturingDate,
+                expiryDate,
+                transactionHash,
+                createdAt
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            product[0],
+            product[1],
+            product[2],
+            product[3],
+            product[4],
+            product[5],
+            product[6],
+            null,
+            new Date().toISOString()
+        );
+
+        console.log(
+            "Synced blockchain product to database:",
+            productId
+        );
+
+        return res.json({
+            success: true,
+            message: "Product synced successfully.",
+            productId
+        });
+
+    } catch (error: any) {
+        console.error(
+            "Product Sync Error:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message:
+                error.message ||
+                "Product sync failed."
+        });
     }
-);
+});
+
+app.get("/api/products", async (req, res) => {
+    try {
+        const products: any[] = [];
+
+        // Get all product IDs that have been registered
+        // through this backend and stored in the database.
+        const dbProducts = db.prepare(`
+            SELECT
+                productId,
+                transactionHash,
+                createdAt
+            FROM products
+            ORDER BY id ASC
+        `).all() as {
+            productId: string;
+            transactionHash: string | null;
+            createdAt: string | null;
+        }[];
+
+        console.log(
+            "Database Product IDs:",
+            dbProducts.map((p) => p.productId)
+        );
+
+        // Fetch the latest state of every product from blockchain
+        for (const dbProduct of dbProducts) {
+            try {
+                const blockchainProduct =
+                    await productVerification.verifyProduct(
+                        dbProduct.productId,
+                        ethers.ZeroHash
+                    );
+
+                const exists = blockchainProduct[13];
+
+                if (!exists) {
+                    console.log(
+                        `Product ${dbProduct.productId} not found on blockchain`
+                    );
+                    continue;
+                }
+
+                products.push({
+                    productId: blockchainProduct[0],
+                    serialNumber: blockchainProduct[1],
+                    productName: blockchainProduct[2],
+                    manufacturer: blockchainProduct[3],
+                    batchNumber: blockchainProduct[4],
+                    manufacturingDate: blockchainProduct[5],
+                    expiryDate: blockchainProduct[6],
+                    metadataHash: blockchainProduct[7],
+                    status: getStatusName(blockchainProduct[8]),
+                    activated: blockchainProduct[9],
+                    currentOwner: blockchainProduct[10],
+                    createdAt:
+                        dbProduct.createdAt ||
+                        String(blockchainProduct[11]),
+                    transactionHash:
+                        dbProduct.transactionHash || null
+                });
+
+            } catch (error) {
+                console.error(
+                    `Unable to load ${dbProduct.productId}:`,
+                    error
+                );
+            }
+        }
+
+        return res.json({
+            success: true,
+            count: products.length,
+            products
+        });
+
+    } catch (error) {
+        console.error(
+            "Get Products Error:",
+            error
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: "Unable to fetch products."
+        });
+    }
+});
 
 // =====================================================
 // GET SINGLE PRODUCT

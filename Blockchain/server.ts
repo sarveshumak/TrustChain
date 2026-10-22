@@ -841,125 +841,140 @@ app.post("/api/products/sync/:productId", async (req, res) => {
     }
 });
 
+// =====================================================
+// GET ALL PRODUCTS
+// =====================================================
+
 app.get("/api/products", async (req, res) => {
     try {
-        const discoveredProducts =
-            await discoverProducts();
+        // SQLite is used as the stable product index.
+        const dbProducts = db.prepare(`
+            SELECT
+                productId,
+                serialNumber,
+                productName,
+                manufacturer,
+                batchNumber,
+                manufacturingDate,
+                expiryDate,
+                transactionHash,
+                createdAt
+            FROM products
+            ORDER BY id ASC
+        `).all() as {
+            productId: string;
+            serialNumber: string;
+            productName: string;
+            manufacturer: string;
+            batchNumber: string;
+            manufacturingDate: string;
+            expiryDate: string;
+            transactionHash: string | null;
+            createdAt: string;
+        }[];
 
         console.log(
-            "Products discovered:",
-            discoveredProducts
+            `Loading ${dbProducts.length} products from database`
         );
 
         const products: any[] = [];
 
-        for (const discoveredProduct of discoveredProducts) {
-            const productId =
-                discoveredProduct.productId;
-
-            const registrationTransactionHash =
-                discoveredProduct.transactionHash;
+        for (const dbProduct of dbProducts) {
             try {
+                // Try to refresh live blockchain information.
                 const blockchainProduct =
                     await productVerification.verifyProduct(
-                        productId,
+                        dbProduct.productId,
                         ethers.ZeroHash
                     );
 
-                const exists =
-                    blockchainProduct[13];
+                const exists = blockchainProduct[13];
 
-                if (!exists) {
-                    console.log(
-                        `Product ${productId} does not exist on blockchain`
-                    );
-                    continue;
-                }
-
-                // Use SQLite only if cached data exists.
-                // Blockchain remains the source of truth.
-                const dbProduct =
-                    db.prepare(`
-                        SELECT
-                            transactionHash,
-                            createdAt
-                        FROM products
-                        WHERE productId = ?
-                    `).get(productId) as
-                    | {
-                          transactionHash:
-                              string | null;
-                          createdAt:
-                              string | null;
-                      }
-                    | undefined;
-
-                products.push({
-                    productId:
-                        blockchainProduct[0],
-
-                    serialNumber:
-                        blockchainProduct[1],
-
-                    productName:
-                        blockchainProduct[2],
-
-                    manufacturer:
-                        blockchainProduct[3],
-
-                    batchNumber:
-                        blockchainProduct[4],
-
-                    manufacturingDate:
-                        blockchainProduct[5],
-
-                    expiryDate:
-                        blockchainProduct[6],
-
-                    metadataHash:
-                        blockchainProduct[7],
-
-                    status:
-                        getStatusName(
+                if (exists) {
+                    products.push({
+                        productId: blockchainProduct[0],
+                        serialNumber: blockchainProduct[1],
+                        productName: blockchainProduct[2],
+                        manufacturer: blockchainProduct[3],
+                        batchNumber: blockchainProduct[4],
+                        manufacturingDate: blockchainProduct[5],
+                        expiryDate: blockchainProduct[6],
+                        metadataHash: blockchainProduct[7],
+                        status: getStatusName(
                             blockchainProduct[8]
                         ),
+                        activated: blockchainProduct[9],
+                        currentOwner: blockchainProduct[10],
+                        createdAt:
+                            dbProduct.createdAt ||
+                            new Date(
+                                Number(blockchainProduct[11]) * 1000
+                            ).toISOString(),
+                        transactionHash:
+                            dbProduct.transactionHash || null
+                    });
 
-                    activated:
-                        blockchainProduct[9],
+                    console.log(
+                        `Loaded ${dbProduct.productId} from blockchain`
+                    );
+                } else {
+                    // Product is in DB but not found on blockchain.
+                    // Keep it visible instead of silently removing it.
+                    products.push({
+                        productId: dbProduct.productId,
+                        serialNumber: dbProduct.serialNumber,
+                        productName: dbProduct.productName,
+                        manufacturer: dbProduct.manufacturer,
+                        batchNumber: dbProduct.batchNumber,
+                        manufacturingDate:
+                            dbProduct.manufacturingDate,
+                        expiryDate: dbProduct.expiryDate,
+                        metadataHash: null,
+                        status: "UNKNOWN",
+                        activated: false,
+                        currentOwner: null,
+                        createdAt: dbProduct.createdAt,
+                        transactionHash:
+                            dbProduct.transactionHash || null
+                    });
 
-                    currentOwner:
-                        blockchainProduct[10],
-
-                    createdAt:
-                        dbProduct?.createdAt ||
-                        new Date(
-                            Number(
-                                blockchainProduct[11]
-                            ) * 1000
-                        ).toISOString(),
-
-                    transactionHash:
-                        registrationTransactionHash ||
-                        dbProduct?.transactionHash ||
-                        null
-                });
-
-                // Small delay between eth_call requests.
-                await new Promise((resolve) =>
-                    setTimeout(resolve, 300)
-                );
+                    console.warn(
+                        `Product ${dbProduct.productId} exists in DB but not on blockchain`
+                    );
+                }
 
             } catch (error) {
+                // IMPORTANT:
+                // A temporary RPC failure must NOT make
+                // the product disappear from the list.
                 console.error(
-                    `Unable to load ${productId}:`,
+                    `Blockchain lookup failed for ${dbProduct.productId}. Using database data.`,
                     error
                 );
 
-                // Don't immediately hit the RPC again.
-                await new Promise((resolve) =>
-                    setTimeout(resolve, 1500)
-                );
+                products.push({
+                    productId: dbProduct.productId,
+                    serialNumber: dbProduct.serialNumber,
+                    productName: dbProduct.productName,
+                    manufacturer: dbProduct.manufacturer,
+                    batchNumber: dbProduct.batchNumber,
+                    manufacturingDate:
+                        dbProduct.manufacturingDate,
+                    expiryDate: dbProduct.expiryDate,
+                    metadataHash: null,
+                    status: "UNKNOWN",
+                    activated: false,
+                    currentOwner: null,
+                    createdAt: dbProduct.createdAt,
+                    transactionHash:
+                        dbProduct.transactionHash || null
+                });
             }
+
+            // Small delay between RPC calls.
+            await new Promise((resolve) =>
+                setTimeout(resolve, 300)
+            );
         }
 
         return res.json({
@@ -976,8 +991,7 @@ app.get("/api/products", async (req, res) => {
 
         return res.status(500).json({
             success: false,
-            message:
-                "Unable to fetch products."
+            message: "Unable to fetch products."
         });
     }
 });
@@ -1836,33 +1850,252 @@ app.get(
                 );
 
                 return res.send(`
-                    <html>
+<html>
+<head>
+    <title>TrustChain - Verification Failed</title>
 
-                    <body>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-                        <h1>
-                            ❌ Product Not Verified
-                        </h1>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-                        <p>
-                            Product ID does not exist
-                            on the blockchain.
-                        </p>
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f4f7fb;
+            color: #101828;
+        }
 
-                        <p>
-                            <b>Blockchain Record:</b>
-                            NOT FOUND
-                        </p>
+        .page {
+            min-height: 100vh;
+            padding: 55px 20px;
+        }
 
-                        <h2>
-                            VERDICT:
-                            NOT VERIFIED
-                        </h2>
+        .container {
+            width: 100%;
+            max-width: 720px;
+            margin: 0 auto;
+        }
 
-                    </body>
+        .brand {
+            text-align: center;
+            margin-bottom: 28px;
+        }
 
-                    </html>
-                `);
+        .brand h1 {
+            margin: 0;
+            color: #315dcc;
+            font-size: 32px;
+            font-weight: 800;
+        }
+
+        .brand p {
+            margin: 7px 0 0;
+            color: #667085;
+            font-size: 15px;
+        }
+
+        .verification-card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 12px 35px rgba(16, 24, 40, 0.10);
+            border: 1px solid #e4e7ec;
+        }
+
+        .warning-header {
+            text-align: center;
+            padding-bottom: 28px;
+            border-bottom: 1px solid #eaecf0;
+        }
+
+        .warning-icon {
+            width: 70px;
+            height: 70px;
+            margin: 0 auto 16px;
+            border-radius: 50%;
+            background: #fee4e2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+        }
+
+        .warning-header h2 {
+            margin: 0;
+            color: #b42318;
+            font-size: 30px;
+        }
+
+        .warning-header p {
+            margin: 10px 0 0;
+            color: #667085;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .record-card {
+            margin-top: 28px;
+            padding: 22px;
+            border-radius: 14px;
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            text-align: center;
+        }
+
+        .record-title {
+            color: #9a3412;
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .record-status {
+            color: #c2410c;
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .product-id {
+            margin-top: 25px;
+            padding: 18px;
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #eaecf0;
+            text-align: center;
+        }
+
+        .product-id-label {
+            display: block;
+            color: #667085;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .product-id-value {
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .verdict {
+            margin-top: 25px;
+            padding: 18px;
+            border-radius: 12px;
+            background: #fef3f2;
+            color: #b42318;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .message {
+            margin-top: 20px;
+            text-align: center;
+            color: #667085;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #98a2b3;
+            font-size: 13px;
+        }
+
+        @media (max-width: 600px) {
+            .page {
+                padding: 30px 14px;
+            }
+
+            .verification-card {
+                padding: 25px 20px;
+            }
+
+            .warning-header h2 {
+                font-size: 25px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="page">
+
+    <div class="container">
+
+        <div class="brand">
+            <h1>TrustChain</h1>
+            <p>Blockchain-Based Product Authentication</p>
+        </div>
+
+        <div class="verification-card">
+
+            <div class="warning-header">
+
+                <div class="warning-icon">
+                    ✕
+                </div>
+
+                <h2>Product Not Verified</h2>
+
+                <p>
+                    This product could not be found
+                    on the blockchain.
+                </p>
+
+            </div>
+
+            <div class="product-id">
+
+                <span class="product-id-label">
+                    Product ID
+                </span>
+
+                <span class="product-id-value">
+                    ${productId}
+                </span>
+
+            </div>
+
+            <div class="record-card">
+
+                <div class="record-title">
+                    BLOCKCHAIN RECORD
+                </div>
+
+                <div class="record-status">
+                    NOT FOUND
+                </div>
+
+            </div>
+
+            <div class="verdict">
+                ✕ VERDICT: NOT VERIFIED
+            </div>
+
+            <div class="message">
+                No matching blockchain record exists for this
+                product ID. The product cannot be authenticated
+                through TrustChain.
+            </div>
+
+        </div>
+
+        <div class="footer">
+            TrustChain • Blockchain-Based Product Authentication
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>
+`);
             }
 
             // -------------------------------------------------
@@ -1891,65 +2124,369 @@ app.get(
                     );
 
                 return res.send(`
-                    <html>
+<html>
+<head>
+    <title>TrustChain - Authentication Failed</title>
 
-                    <body>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-                        <h1>
-                            ❌ Authentication Failed
-                        </h1>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-                        <p>
-                            <b>Product ID:</b>
-                            ${product[0]}
-                        </p>
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f4f7fb;
+            color: #101828;
+        }
 
-                        <p>
-                            <b>Serial Number:</b>
-                            ${product[1]}
-                        </p>
+        .page {
+            min-height: 100vh;
+            padding: 50px 20px;
+        }
 
-                        <p>
-                            <b>Product Name:</b>
-                            ${product[2]}
-                        </p>
+        .container {
+            width: 100%;
+            max-width: 760px;
+            margin: 0 auto;
+        }
 
-                        <p>
-                            <b>Manufacturer:</b>
-                            ${product[3]}
-                        </p>
+        .brand {
+            text-align: center;
+            margin-bottom: 28px;
+        }
 
-                        <hr>
+        .brand h1 {
+            margin: 0;
+            color: #315dcc;
+            font-size: 32px;
+            font-weight: 800;
+        }
 
-                        <p>
-                            <b>Blockchain:</b>
-                            VERIFIED
-                        </p>
+        .brand p {
+            margin: 7px 0 0;
+            color: #667085;
+            font-size: 15px;
+        }
 
-                        <p>
-                            <b>Secret:</b>
-                            INVALID
-                        </p>
+        .card {
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 12px 35px rgba(16, 24, 40, 0.10);
+            border: 1px solid #e4e7ec;
+        }
 
-                        <p>
-                            <b>Risk Score:</b>
-                            ${risk.riskScore}/100
-                        </p>
+        .header {
+            text-align: center;
+            padding-bottom: 28px;
+            border-bottom: 1px solid #eaecf0;
+        }
 
-                        <p>
-                            <b>Risk Level:</b>
-                            ${risk.riskLevel}
-                        </p>
+        .warning-icon {
+            width: 72px;
+            height: 72px;
+            margin: 0 auto 16px;
+            border-radius: 50%;
+            background: #ffedd5;
+            color: #c2410c;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 38px;
+            font-weight: bold;
+        }
 
-                        <h2>
-                            VERDICT:
-                            SUSPICIOUS / NOT VERIFIED
-                        </h2>
+        .header h2 {
+            margin: 0;
+            color: #c2410c;
+            font-size: 30px;
+        }
 
-                    </body>
+        .header p {
+            margin: 10px 0 0;
+            color: #667085;
+            font-size: 15px;
+            line-height: 1.5;
+        }
 
-                    </html>
-                `);
+        .section-title {
+            margin-top: 30px;
+            margin-bottom: 16px;
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+
+        .info-box {
+            padding: 17px;
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #e4e7ec;
+        }
+
+        .label {
+            display: block;
+            color: #667085;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .value {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .verification {
+            margin-top: 30px;
+            padding-top: 28px;
+            border-top: 1px solid #eaecf0;
+        }
+
+        .check-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 17px 0;
+            border-bottom: 1px solid #eaecf0;
+            font-size: 15px;
+        }
+
+        .check-name {
+            font-weight: 700;
+            color: #344054;
+        }
+
+        .badge {
+            padding: 7px 13px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .verified {
+            background: #dcfae6;
+            color: #067647;
+        }
+
+        .invalid {
+            background: #fee4e2;
+            color: #b42318;
+        }
+
+        .risk-card {
+            margin-top: 28px;
+            padding: 25px;
+            border-radius: 14px;
+            background: #fff7ed;
+            border: 1px solid #fdba74;
+            text-align: center;
+        }
+
+        .risk-title {
+            color: #9a3412;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+
+        .risk-score {
+            margin-top: 6px;
+            color: #c2410c;
+            font-size: 42px;
+            font-weight: 900;
+        }
+
+        .risk-level {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 8px 16px;
+            border-radius: 999px;
+            background: #ffedd5;
+            color: #c2410c;
+            font-weight: 800;
+        }
+
+        .verdict {
+            margin-top: 24px;
+            padding: 20px;
+            border-radius: 13px;
+            background: #fef3f2;
+            color: #b42318;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 900;
+        }
+
+        .notice {
+            margin-top: 20px;
+            padding: 16px 18px;
+            border-radius: 12px;
+            background: #fff7ed;
+            color: #9a3412;
+            text-align: center;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #98a2b3;
+            font-size: 13px;
+        }
+
+        @media (max-width: 600px) {
+            .page {
+                padding: 30px 14px;
+            }
+
+            .card {
+                padding: 25px 20px;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h2 {
+                font-size: 25px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="page">
+
+    <div class="container">
+
+        <div class="brand">
+            <h1>TrustChain</h1>
+            <p>Blockchain-Based Product Authentication</p>
+        </div>
+
+        <div class="card">
+
+            <div class="header">
+
+                <div class="warning-icon">
+                    !
+                </div>
+
+                <h2>Authentication Failed</h2>
+
+                <p>
+                    The product exists on the blockchain,
+                    but the authentication secret is invalid.
+                </p>
+
+            </div>
+
+            <div class="section-title">
+                Product Information
+            </div>
+
+            <div class="info-grid">
+
+                <div class="info-box">
+                    <span class="label">Product ID</span>
+                    <span class="value">${product[0]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">Serial Number</span>
+                    <span class="value">${product[1]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">Product Name</span>
+                    <span class="value">${product[2]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">Manufacturer</span>
+                    <span class="value">${product[3]}</span>
+                </div>
+
+            </div>
+
+            <div class="verification">
+
+                <div class="section-title">
+                    Blockchain Verification
+                </div>
+
+                <div class="check-row">
+                    <span class="check-name">
+                        Blockchain Record
+                    </span>
+
+                    <span class="badge verified">
+                        ✓ VERIFIED
+                    </span>
+                </div>
+
+                <div class="check-row">
+                    <span class="check-name">
+                        Secret Authentication
+                    </span>
+
+                    <span class="badge invalid">
+                        ✕ INVALID
+                    </span>
+                </div>
+
+            </div>
+
+            <div class="risk-card">
+
+                <div class="risk-title">
+                    RISK SCORE
+                </div>
+
+                <div class="risk-score">
+                    ${risk.riskScore}/100
+                </div>
+
+                <div class="risk-level">
+                    ⚠ ${risk.riskLevel} RISK
+                </div>
+
+            </div>
+
+            <div class="verdict">
+                ⚠ VERDICT: SUSPICIOUS / NOT VERIFIED
+            </div>
+
+            <div class="notice">
+                The blockchain record exists, but the supplied
+                authentication secret does not match the registered
+                product credentials. The product should not be
+                considered authentic.
+            </div>
+
+        </div>
+
+        <div class="footer">
+            TrustChain • Blockchain-Based Product Authentication
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>
+`);
             }
 
             // -------------------------------------------------
@@ -2158,90 +2695,379 @@ app.get(
             );
 
             return res.send(`
-                <html>
+<html>
+<head>
+    <title>TrustChain - Product Verification</title>
 
-                <body>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-                    <h1>
-                        ✅ Authentic Product
-                    </h1>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-                    <p>
-                        <b>Product ID:</b>
-                        ${product[0]}
-                    </p>
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f4f7fb;
+            color: #101828;
+        }
 
-                    <p>
-                        <b>Serial Number:</b>
-                        ${product[1]}
-                    </p>
+        .page {
+            min-height: 100vh;
+            padding: 45px 20px;
+        }
 
-                    <p>
-                        <b>Product Name:</b>
-                        ${product[2]}
-                    </p>
+        .container {
+            width: 100%;
+            max-width: 850px;
+            margin: 0 auto;
+        }
 
-                    <p>
-                        <b>Manufacturer:</b>
-                        ${product[3]}
-                    </p>
+        .brand {
+            text-align: center;
+            margin-bottom: 28px;
+        }
 
-                    <p>
-                        <b>Batch Number:</b>
-                        ${product[4]}
-                    </p>
+        .brand h1 {
+            margin: 0;
+            color: #315dcc;
+            font-size: 32px;
+            font-weight: 800;
+        }
 
-                    <p>
-                        <b>Manufacturing Date:</b>
-                        ${product[5]}
-                    </p>
+        .brand p {
+            margin: 7px 0 0;
+            color: #667085;
+            font-size: 15px;
+        }
 
-                    <p>
-                        <b>Expiry Date:</b>
-                        ${product[6]}
-                    </p>
+        .verification-card {
+            background: white;
+            border-radius: 20px;
+            padding: 35px;
+            box-shadow: 0 12px 35px rgba(16, 24, 40, 0.10);
+            border: 1px solid #e4e7ec;
+        }
 
-                    <hr>
+        .success-header {
+            text-align: center;
+            padding-bottom: 28px;
+            border-bottom: 1px solid #eaecf0;
+        }
 
-                    <h3>
-                        Blockchain Verification:
-                        SUCCESS
-                    </h3>
+        .success-icon {
+            width: 68px;
+            height: 68px;
+            margin: 0 auto 14px;
+            border-radius: 50%;
+            background: #dcfae6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+        }
 
-                    <p>
-                        <b>Secret Authentication:</b>
-                        VALID
-                    </p>
+        .success-header h2 {
+            margin: 0;
+            font-size: 30px;
+            color: #067647;
+        }
 
-                    <p>
-                        <b>Product Status:</b>
+        .success-header p {
+            margin: 8px 0 0;
+            color: #667085;
+            font-size: 15px;
+        }
+
+        .section-title {
+            margin: 28px 0 18px;
+            font-size: 19px;
+            font-weight: 700;
+        }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+        }
+
+        .info-box {
+            background: #f8fafc;
+            border: 1px solid #eaecf0;
+            border-radius: 12px;
+            padding: 15px 17px;
+        }
+
+        .info-label {
+            display: block;
+            color: #667085;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        .info-value {
+            font-size: 16px;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        .blockchain-section {
+            margin-top: 30px;
+            padding-top: 26px;
+            border-top: 1px solid #eaecf0;
+        }
+
+        .verification-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            padding: 14px 0;
+            border-bottom: 1px solid #f2f4f7;
+        }
+
+        .verification-row:last-child {
+            border-bottom: none;
+        }
+
+        .verification-label {
+            color: #475467;
+            font-weight: 600;
+        }
+
+        .success-badge {
+            background: #dcfae6;
+            color: #067647;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .risk-card {
+            margin-top: 30px;
+            padding: 25px;
+            border-radius: 16px;
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            text-align: center;
+        }
+
+        .risk-title {
+            color: #475467;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .risk-score {
+            margin: 8px 0;
+            font-size: 42px;
+            font-weight: 800;
+            color: #067647;
+        }
+
+        .risk-level {
+            display: inline-block;
+            padding: 7px 16px;
+            border-radius: 999px;
+            background: #dcfae6;
+            color: #067647;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .verdict {
+            margin-top: 25px;
+            padding: 18px;
+            border-radius: 12px;
+            background: #ecfdf3;
+            color: #067647;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 800;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #98a2b3;
+            font-size: 13px;
+        }
+
+        @media (max-width: 650px) {
+            .page {
+                padding: 25px 12px;
+            }
+
+            .verification-card {
+                padding: 22px;
+            }
+
+            .product-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .success-header h2 {
+                font-size: 25px;
+            }
+
+            .verification-row {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="page">
+
+    <div class="container">
+
+        <div class="brand">
+            <h1>TrustChain</h1>
+            <p>Blockchain-Based Product Authentication</p>
+        </div>
+
+        <div class="verification-card">
+
+            <div class="success-header">
+                <div class="success-icon">✓</div>
+
+                <h2>Authentic Product</h2>
+
+                <p>
+                    This product has been successfully verified
+                    on the blockchain.
+                </p>
+            </div>
+
+            <h3 class="section-title">
+                Product Information
+            </h3>
+
+            <div class="product-grid">
+
+                <div class="info-box">
+                    <span class="info-label">Product ID</span>
+                    <span class="info-value">${product[0]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="info-label">Serial Number</span>
+                    <span class="info-value">${product[1]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="info-label">Product Name</span>
+                    <span class="info-value">${product[2]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="info-label">Manufacturer</span>
+                    <span class="info-value">${product[3]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="info-label">Batch Number</span>
+                    <span class="info-value">${product[4]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="info-label">Manufacturing Date</span>
+                    <span class="info-value">${product[5]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="info-label">Expiry Date</span>
+                    <span class="info-value">${product[6]}</span>
+                </div>
+
+            </div>
+
+            <div class="blockchain-section">
+
+                <h3 class="section-title">
+                    Blockchain Verification
+                </h3>
+
+                <div class="verification-row">
+                    <span class="verification-label">
+                        Blockchain Verification
+                    </span>
+
+                    <span class="success-badge">
+                        ✓ SUCCESS
+                    </span>
+                </div>
+
+                <div class="verification-row">
+                    <span class="verification-label">
+                        Secret Authentication
+                    </span>
+
+                    <span class="success-badge">
+                        ✓ VALID
+                    </span>
+                </div>
+
+                <div class="verification-row">
+                    <span class="verification-label">
+                        Product Status
+                    </span>
+
+                    <span class="success-badge">
                         ${getStatusName(status)}
-                    </p>
+                    </span>
+                </div>
 
-                    <p>
-                        <b>Activated:</b>
+                <div class="verification-row">
+                    <span class="verification-label">
+                        Activated
+                    </span>
+
+                    <span class="success-badge">
                         ${activated ? "YES" : "NO"}
-                    </p>
+                    </span>
+                </div>
 
-                    <h2>
-                        VERDICT:
-                        AUTHENTIC PRODUCT
-                    </h2>
+            </div>
 
-                    <p>
-                        <b>Risk Score:</b>
-                        ${risk.riskScore}/100
-                    </p>
+            <div class="risk-card">
 
-                    <p>
-                        <b>Risk Level:</b>
-                        ${risk.riskLevel}
-                    </p>
+                <div class="risk-title">
+                    RISK SCORE
+                </div>
 
-                </body>
+                <div class="risk-score">
+                    ${risk.riskScore}/100
+                </div>
 
-                </html>
-            `);
+                <span class="risk-level">
+                    🟢 ${risk.riskLevel} RISK
+                </span>
+
+            </div>
+
+            <div class="verdict">
+                ✓ VERDICT: AUTHENTIC PRODUCT
+            </div>
+
+        </div>
+
+        <div class="footer">
+            Verified securely using blockchain technology
+        </div>
+
+    </div>
+
+</div>
+
+</body>
+</html>
+`);
 
         } catch (error: any) {
 

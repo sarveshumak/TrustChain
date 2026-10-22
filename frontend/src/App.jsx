@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import QRCode from "qrcode";
 
-const API = "https://trustchain-s9a6.onrender.com";
+const API = "http://localhost:3000";
 
 function App() {
   // =========================
@@ -360,6 +360,8 @@ function App() {
       const data = await response.json();
 
       if (data.success) {
+        console.log("PRODUCT API DATA:", data);
+        console.log("PRODUCT IDS:", data.products?.map(p => p.productId));
         setProducts(
           Array.isArray(data.products)
             ? data.products
@@ -1113,17 +1115,12 @@ function App() {
             TrustChain
           </div>
 
-          <h1>
+          <h1 style={styles.loginTitle}>
             Manufacturer Login
           </h1>
 
-          <p
-            style={{
-              color: "#667085",
-            }}
-          >
-            Login to manage
-            blockchain-backed products.
+          <p style={styles.loginSubtitle}>
+            Login to manage blockchain-backed products.
           </p>
 
           <input
@@ -1644,24 +1641,13 @@ function App() {
 
                 <div>
 
-                  <h1
-                    style={{
-                      marginBottom: 5,
-                    }}
-                  >
-                    Products
-                  </h1>
+                  <h1 style={styles.pageTitle}>
+  Products
+</h1>
 
-                  <p
-                    style={{
-                      margin: 0,
-                      color: "#667085",
-                    }}
-                  >
-                    Search and manage
-                    all registered
-                    products.
-                  </p>
+<p style={styles.pageSubtitle}>
+  Search and manage all registered products.
+</p>
 
                 </div>
 
@@ -1964,24 +1950,13 @@ function App() {
 
                 <div>
 
-                  <h1
-                    style={{
-                      marginBottom: 5,
-                    }}
-                  >
-                    Register New Product
-                  </h1>
+                  <h1 style={styles.pageTitle}>
+  Register New Product
+</h1>
 
-                  <p
-                    style={{
-                      margin: 0,
-                      color: "#667085",
-                    }}
-                  >
-                    Create a
-                    blockchain-backed
-                    product identity.
-                  </p>
+<p style={styles.pageSubtitle}>
+  Create a blockchain-backed product identity.
+</p>
 
                 </div>
 
@@ -2227,23 +2202,13 @@ function App() {
 
                 <div>
 
-                  <h1
-                    style={{
-                      marginBottom: 5,
-                    }}
-                  >
-                    QR Codes
-                  </h1>
+                  <h1 style={styles.pageTitle}>
+  QR Codes
+</h1>
 
-                  <p
-                    style={{
-                      margin: 0,
-                      color: "#667085",
-                    }}
-                  >
-                    Generate QR codes for
-                    registered products.
-                  </p>
+                  <p style={styles.pageSubtitle}>
+  Generate QR codes for registered products.
+</p>
 
                 </div>
 
@@ -2739,23 +2704,13 @@ function App() {
 
                   <div>
 
-                    <h1
-                      style={{
-                        marginBottom: 5,
-                      }}
-                    >
-                      Security Alerts
-                    </h1>
+                    <h1 style={styles.pageTitle}>
+  Security Alerts
+</h1>
 
-                    <p
-                      style={{
-                        margin: 0,
-                        color: "#667085",
-                      }}
-                    >
-                      Products that require
-                      manufacturer attention.
-                    </p>
+<p style={styles.pageSubtitle}>
+  Products that require manufacturer attention.
+</p>
 
                   </div>
 
@@ -3250,6 +3205,21 @@ const styles = {
     boxSizing: "border-box",
   },
 
+  loginTitle: {
+  margin: "0 0 12px",
+  fontSize: "38px",
+  lineHeight: "1.15",
+  fontWeight: "700",
+  color: "#101828",
+},
+
+loginSubtitle: {
+  margin: "0 0 25px",
+  color: "#667085",
+  fontSize: "17px",
+  lineHeight: "1.5",
+},
+
   loginLogo: {
     fontSize: "25px",
     fontWeight: "700",
@@ -3419,12 +3389,28 @@ const styles = {
   },
 
   pageHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "25px",
-    gap: "20px",
-  },
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  marginBottom: "30px",
+  gap: "25px",
+  flexWrap: "wrap",
+},
+
+pageTitle: {
+  margin: 0,
+  fontSize: "42px",
+  lineHeight: "1.15",
+  fontWeight: "700",
+  color: "#101828",
+},
+
+pageSubtitle: {
+  margin: "8px 0 0",
+  color: "#667085",
+  fontSize: "17px",
+  lineHeight: "1.5",
+},
 
   primarySmallButton: {
     background: "#315dcc",

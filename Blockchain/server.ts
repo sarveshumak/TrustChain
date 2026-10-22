@@ -845,6 +845,48 @@ app.post("/api/products/sync/:productId", async (req, res) => {
 // GET ALL PRODUCTS
 // =====================================================
 
+app.post("/api/products/update-transaction/:productId", async (req, res) => {
+    try {
+        const productId = req.params.productId.trim();
+        const { transactionHash } = req.body;
+
+        if (!transactionHash) {
+            return res.status(400).json({
+                success: false,
+                message: "Transaction hash is required."
+            });
+        }
+
+        const result = db.prepare(`
+            UPDATE products
+            SET transactionHash = ?
+            WHERE productId = ?
+        `).run(transactionHash, productId);
+
+        if (result.changes === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Product not found in database."
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: "Transaction hash updated successfully.",
+            productId,
+            transactionHash
+        });
+
+    } catch (error: any) {
+        console.error("Transaction Hash Update Error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: error.message || "Failed to update transaction hash."
+        });
+    }
+});
+
 app.get("/api/products", async (req, res) => {
     try {
         // SQLite is used as the stable product index.

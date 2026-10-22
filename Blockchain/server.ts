@@ -2621,66 +2621,380 @@ app.get(
                 );
 
                 return res.send(`
-                    <html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-                    <body>
+    <title>Product Registered - TrustChain</title>
 
-                        <h1>
-                            🟡 Product Registered
-                        </h1>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-                        <p>
-                            <b>Product ID:</b>
-                            ${product[0]}
-                        </p>
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f5f7fb;
+            color: #101828;
+        }
 
-                        <p>
-                            <b>Serial Number:</b>
-                            ${product[1]}
-                        </p>
+        .header {
+            background: #ffffff;
+            border-bottom: 1px solid #e4e7ec;
+            padding: 18px 7%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
 
-                        <p>
-                            <b>Product Name:</b>
-                            ${product[2]}
-                        </p>
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 24px;
+            font-weight: 700;
+            color: #2563eb;
+        }
 
-                        <p>
-                            <b>Manufacturer:</b>
-                            ${product[3]}
-                        </p>
+        .brand-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            background: #2563eb;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
 
-                        <hr>
+        .container {
+            max-width: 900px;
+            margin: 45px auto;
+            padding: 0 22px;
+        }
 
-                        <p>
-                            <b>Blockchain:</b>
-                            SUCCESS
-                        </p>
+        .success-card {
+            background: white;
+            border-radius: 18px;
+            padding: 38px;
+            box-shadow: 0 10px 30px rgba(16, 24, 40, 0.08);
+            border: 1px solid #eaecf0;
+        }
 
-                        <p>
-                            <b>Secret Authentication:</b>
-                            VALID
-                        </p>
+        .status-icon {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: #fff7e6;
+            color: #f59e0b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
 
-                        <p>
-                            <b>Product Status:</b>
-                            REGISTERED
-                        </p>
+        h1 {
+            margin: 0;
+            font-size: 32px;
+            line-height: 1.2;
+        }
 
-                        <p>
-                            <b>Activated:</b>
-                            NO
-                        </p>
+        .subtitle {
+            margin-top: 10px;
+            color: #667085;
+            font-size: 16px;
+            line-height: 1.6;
+        }
 
-                        <h2>
-                            VERDICT:
-                            AUTHENTICATION VALID —
-                            ACTIVATION REQUIRED
-                        </h2>
+        .section-title {
+            margin: 32px 0 15px;
+            font-size: 18px;
+            font-weight: 700;
+        }
 
-                    </body>
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+        }
 
-                    </html>
-                `);
+        .info-box {
+            background: #f9fafb;
+            border: 1px solid #eaecf0;
+            border-radius: 12px;
+            padding: 17px;
+        }
+
+        .label {
+            display: block;
+            color: #667085;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .value {
+            font-size: 15px;
+            font-weight: 600;
+            word-break: break-word;
+        }
+
+        .verification-card {
+            margin-top: 25px;
+            border: 1px solid #eaecf0;
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        .verification-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 17px 20px;
+            border-bottom: 1px solid #eaecf0;
+        }
+
+        .verification-row:last-child {
+            border-bottom: none;
+        }
+
+        .verification-label {
+            font-weight: 600;
+        }
+
+        .badge {
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .green {
+            background: #ecfdf3;
+            color: #027a48;
+        }
+
+        .yellow {
+            background: #fffaeb;
+            color: #b54708;
+        }
+
+        .activation-box {
+            margin-top: 25px;
+            background: #fffaeb;
+            border: 1px solid #fedf89;
+            border-radius: 14px;
+            padding: 20px;
+        }
+
+        .activation-title {
+            color: #b54708;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 7px;
+        }
+
+        .activation-text {
+            color: #7a2e0e;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        .verdict {
+            margin-top: 30px;
+            background: #f0f9ff;
+            border: 1px solid #b9e6fe;
+            border-radius: 14px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .verdict-label {
+            color: #475467;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .verdict-text {
+            color: #0369a1;
+            font-size: 22px;
+            font-weight: 800;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 25px;
+            color: #98a2b3;
+            font-size: 13px;
+        }
+
+        @media (max-width: 650px) {
+            .container {
+                margin: 25px auto;
+            }
+
+            .success-card {
+                padding: 25px;
+            }
+
+            .product-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .verification-row {
+                gap: 15px;
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            h1 {
+                font-size: 27px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <div class="brand">
+            <div class="brand-icon">T</div>
+            TrustChain
+        </div>
+    </div>
+
+    <div class="container">
+
+        <div class="success-card">
+
+            <div class="status-icon">✓</div>
+
+            <h1>Product Registered</h1>
+
+            <div class="subtitle">
+                The product has been successfully registered on the blockchain.
+                Authentication is valid, but activation is still required.
+            </div>
+
+            <div class="section-title">
+                Product Information
+            </div>
+
+            <div class="product-grid">
+
+                <div class="info-box">
+                    <span class="label">Product ID</span>
+                    <span class="value">${product[0]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">Serial Number</span>
+                    <span class="value">${product[1]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">Product Name</span>
+                    <span class="value">${product[2]}</span>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">Manufacturer</span>
+                    <span class="value">${product[3]}</span>
+                </div>
+
+            </div>
+
+            <div class="section-title">
+                Blockchain Verification
+            </div>
+
+            <div class="verification-card">
+
+                <div class="verification-row">
+                    <span class="verification-label">
+                        Blockchain Record
+                    </span>
+
+                    <span class="badge green">
+                        VERIFIED
+                    </span>
+                </div>
+
+                <div class="verification-row">
+                    <span class="verification-label">
+                        Secret Authentication
+                    </span>
+
+                    <span class="badge green">
+                        VALID
+                    </span>
+                </div>
+
+                <div class="verification-row">
+                    <span class="verification-label">
+                        Product Status
+                    </span>
+
+                    <span class="badge yellow">
+                        REGISTERED
+                    </span>
+                </div>
+
+                <div class="verification-row">
+                    <span class="verification-label">
+                        Activation Status
+                    </span>
+
+                    <span class="badge yellow">
+                        NOT ACTIVATED
+                    </span>
+                </div>
+
+            </div>
+
+            <div class="activation-box">
+
+                <div class="activation-title">
+                    Activation Required
+                </div>
+
+                <div class="activation-text">
+                    This product is authentic and exists on the blockchain,
+                    but it has not been activated yet. The product must be
+                    activated before it can be considered fully active.
+                </div>
+
+            </div>
+
+            <div class="verdict">
+
+                <div class="verdict-label">
+                    VERDICT
+                </div>
+
+                <div class="verdict-text">
+                    AUTHENTICATION VALID — ACTIVATION REQUIRED
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="footer">
+            Secured by TrustChain Blockchain Verification
+        </div>
+
+    </div>
+
+</body>
+</html>
+`);
             }
 
             // -------------------------------------------------
